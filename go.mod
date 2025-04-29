@@ -3,6 +3,7 @@ module github.com/render-examples/go-web-server
 go 1.23
 
 require (
+	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/lib/pq v1.10.9
 )
