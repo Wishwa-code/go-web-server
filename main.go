@@ -36,6 +36,39 @@ func Hello(name string) string {
 	return message
 }
 
+type Brand struct {
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	Logourl          string     `json:"logourl"`
+	CountryOfOrigin  string     `json:"country_of_origin"`
+	SocialMediaLinks string     `json:"social_media_links"`
+	ContactEmail     string     `json:"contact_email"`
+	PhoneNumber      string     `json:"phone_number"`
+	BannerUrl        string     `json:"banner_url"`
+	Website          string     `json:"website"`
+	CreatedAt        *time.Time `json:"created_at"`
+}
+
+type Supplier struct {
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	LogoURL          string     `json:"logourl"`
+	Website          string     `json:"website"`
+	CountryOfOrigin  string     `json:"coutry_of_origin"`
+	SocialMediaLinks string     `json:"social_media_links"`
+	ContactEmail     string     `json:"contact_email"`
+	PhoneNumber      string     `json:"phone_number"`
+	BannerURL        string     `json:"banner_url"`
+	LocatedCity      string     `json:"city"`
+	LocatedCountry   string     `json:"country"`
+	BankDetails      string     `json:"bank_details"`
+	Status           string     `json:"status"`
+	ExtraData        string     `json:"extra_data"`
+	CreatedAt        *time.Time `json:"created_at"`
+}
+
 type Product struct {
 	ID             string     `json:"id"`
 	Title          string     `json:"title"`
@@ -73,6 +106,10 @@ type Variance struct {
 
 var memoryDb = make(map[string]string)
 var postgresDb *sql.DB
+
+//! ============================================================================ //
+//? ========================== 🫰 THE MAIN 🫰 ================================= //
+//! ============================================================================ //
 
 func main() {
 
@@ -174,16 +211,16 @@ func setupRouter() *gin.Engine {
 
 	r.GET("/variance/by-product/:id", getVariancesByProductId)
 
+	r.POST("/supplier/upsert", insertOrUpdateSupplier)
+
 	r.GET("/supplier/getAll", getSupplierFilters)
+
+	r.POST("brand/upsert", insertOrUpdateBrand)
 
 	r.GET("/brand/getAll", getBrandFilters)
 
 	return r
 }
-
-//? ============================================================================ //
-//! ================= ✨ Menu tree related api handlers ✨ =============== //
-//? ============================================================================ //
 
 //? ========================================================================= //
 //! ================== 📦 PRODUCT RELATED API HANDLERS 📦 ================== //
@@ -923,7 +960,7 @@ func getSupplierFilters(c *gin.Context) {
 			COALESCE(description, '') AS description,
 			COALESCE(logourl, '') AS logourl,
 			COALESCE(website, '') AS website,
-			COALESCE(created_at, '2025-01-01 00:00:00'::timestamp) AS created_at, -- Provide default timestamp
+			COALESCE(created_at, '2025-01-01 00:00:00'::timestamp) AS created_at,
 			COALESCE(coutry_of_origin, '') AS coutry_of_origin,
 			COALESCE(social_media_links, '') AS social_media_links,
 			COALESCE(contact_email, '') AS contact_email,
@@ -946,25 +983,6 @@ func getSupplierFilters(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type Supplier struct {
-		ID               string `json:"id"`
-		Name             string `json:"name"`
-		Description      string `json:"description"`
-		LogoURL          string `json:"logourl"`
-		Website          string `json:"website"`
-		CreatedAt        string `json:"created_at"`
-		CountryOfOrigin  string `json:"country_of_origin"`
-		SocialMediaLinks string `json:"social_media_links"`
-		ContactEmail     string `json:"contact_email"`
-		PhoneNumber      string `json:"phone_number"`
-		BannerURL        string `json:"banner_url"`
-		LocatedCity      string `json:"city"`
-		LocatedCountry   string `json:"country"`
-		BankDetails      string `json:"bank_details"`
-		Status           string `json:"status"`
-		ExtraData        string `json:"extra_data"`
-	}
-
 	var suppliers []Supplier
 	for rows.Next() {
 		var s Supplier
@@ -984,6 +1002,97 @@ func getSupplierFilters(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"suppliers": suppliers})
+}
+
+func insertOrUpdateSupplier(c *gin.Context) {
+	var supplier Supplier
+	if err := c.ShouldBindJSON(&supplier); err != nil {
+		log.Println("📢 upserting variances to json parsing got error", err)
+
+		c.JSON(http.StatusBadRequest,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_JSON",
+					"message": "Invalid JSON input",
+					"details": err.Error(),
+				},
+			})
+
+		return
+	}
+
+	now := time.Now()
+	supplier.CreatedAt = &now
+
+	query := `
+		INSERT INTO supplier_tb (
+			name, description, logourl,  coutry_of_origin, 
+			social_media_links, contact_email, phone_number, banner_url, 
+			website, city, country, bank_details,
+			status, extra_data, created_at
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7, $8, $9,
+			$10, $11, $12, $13, $14, $15
+		)
+		ON CONFLICT (name)
+		DO UPDATE SET 
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			logourl = EXCLUDED.logourl,
+			coutry_of_origin = EXCLUDED.coutry_of_origin,
+			social_media_links = EXCLUDED.social_media_links,
+			contact_email = EXCLUDED.contact_email,
+			phone_number = EXCLUDED.phone_number,
+			banner_url = EXCLUDED.banner_url,
+			website = EXCLUDED.website,
+			city = EXCLUDED.city,
+			country = EXCLUDED.country,
+			bank_details = EXCLUDED.bank_details,
+			status = EXCLUDED.status,
+			extra_data = EXCLUDED.extra_data
+		RETURNING id, name, description, logourl, 
+			      coutry_of_origin, social_media_links, contact_email, phone_number, 
+				  banner_url, website, city, country, 
+				  bank_details, status, extra_data, created_at
+	`
+
+	// JSON encode the image URL
+
+	var result Supplier
+
+	err := postgresDb.QueryRow(
+		query,
+		supplier.Name, supplier.Description, supplier.LogoURL, supplier.CountryOfOrigin,
+		supplier.SocialMediaLinks, supplier.ContactEmail, supplier.PhoneNumber, supplier.BannerURL,
+		supplier.Website, supplier.LocatedCity, supplier.LocatedCountry, supplier.BankDetails,
+		supplier.Status, supplier.ExtraData, supplier.CreatedAt,
+	).Scan(
+		&result.ID, &result.Name, &result.Description, &result.LogoURL, &result.CountryOfOrigin,
+		&result.SocialMediaLinks, &result.ContactEmail, &result.PhoneNumber, &result.BannerURL,
+		&result.Website, &result.LocatedCity, &result.LocatedCountry, &result.BankDetails,
+		&result.Status, &result.ExtraData, &result.CreatedAt,
+	)
+
+	if err != nil {
+		log.Println("📢 upserting variances to db got error", err)
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":   "brand upserted",
+		"supplier": result,
+	})
 }
 
 //! ============================================================================ //
@@ -1049,6 +1158,84 @@ func getBrandFilters(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"brands": brands})
 }
 
-//! ============================================================================ //
-//? ========================== 🫰 THE MAIN 🫰 ================================= //
-//! ============================================================================ //
+func insertOrUpdateBrand(c *gin.Context) {
+	var brand Brand
+	if err := c.ShouldBindJSON(&brand); err != nil {
+		log.Println("📢 upserting variances to json parsing got error", err)
+
+		c.JSON(http.StatusBadRequest,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_JSON",
+					"message": "Invalid JSON input",
+					"details": err.Error(),
+				},
+			})
+
+		return
+	}
+
+	now := time.Now()
+	brand.CreatedAt = &now
+
+	query := `
+		INSERT INTO brand (
+			name, description, logourl, coutry_of_origin,
+			social_media_links, contact_email, phone_number, 
+			banner_url, website, created_at
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7, $8, $9,
+			$10
+		)
+		ON CONFLICT (name)
+		DO UPDATE SET 
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			logourl = EXCLUDED.logourl,
+			coutry_of_origin = EXCLUDED.coutry_of_origin,
+			social_media_links = EXCLUDED.social_media_links,
+			contact_email = EXCLUDED.contact_email,
+			phone_number = EXCLUDED.phone_number,
+			banner_url = EXCLUDED.banner_url,
+			website = EXCLUDED.website
+		RETURNING id, name, description, logourl, coutry_of_origin,
+		          social_media_links, contact_email, phone_number, banner_url, website,
+		          created_at
+	`
+
+	// JSON encode the image URL
+
+	var result Brand
+
+	err := postgresDb.QueryRow(
+		query,
+		brand.Name, brand.Description,
+		brand.Logourl, brand.CountryOfOrigin, brand.SocialMediaLinks, brand.ContactEmail, brand.PhoneNumber,
+		brand.BannerUrl, brand.Website, brand.CreatedAt,
+	).Scan(
+		&result.ID, &result.Name, &result.Description, &result.Logourl,
+		&result.CountryOfOrigin, &result.SocialMediaLinks, &result.ContactEmail, &result.PhoneNumber,
+		&result.BannerUrl, &result.Website, &result.CreatedAt,
+	)
+
+	if err != nil {
+		log.Println("📢 upserting variances to db got error", err)
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "brand upserted",
+		"brand":  result,
+	})
+}
