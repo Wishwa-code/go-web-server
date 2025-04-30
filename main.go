@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/gin-gonic/gin"
@@ -36,38 +37,67 @@ func Hello(name string) string {
 }
 
 type Product struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Description  string `json:"description"`
-	TagOne       string `json:"tag_one"`
-	TagTwo       string `json:"tag_two"`
-	ImageURL     string `json:"imageurl"`
-	Department   string `json:"department"`
-	MainCategory string `json:"main_catogory"`
-	SubCategory  string `json:"sub_catogory"`
+	ID             string     `json:"id"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	TagOne         string     `json:"tag_one"`
+	TagTwo         string     `json:"tag_two"`
+	ImageURL       string     `json:"imageurl"`
+	Department     string     `json:"department"`
+	MainCategory   string     `json:"main_catogory"`
+	SubCategory    string     `json:"sub_catogory"`
+	CreatedAt      *time.Time `json:"created_at"`
+	LastModifiedAt *time.Time `json:"last_modified_at"`
 }
 
 type Variance struct {
-	ID                  int     `json:"id"` // pointer to differentiate between null and 0
-	ProductName         string  `json:"productName"`
-	ProductID           string  `json:"product_id"`
-	Barcode             string  `json:"barcode"`
-	DisplayTitle        string  `json:"displayTitle"`
-	VarianceDescription string  `json:"about_this_variance"`
-	ImageUrl            string  `json:"imageurl"`
-	VarianceTitle       string  `json:"variance"`
-	Brand               string  `json:"brand"`
-	Supplier            string  `json:"supplier"`
-	OriginalPrice       float64 `json:"original_price"`         // Changed to float64 for NUMERIC
-	RetailPrice         float64 `json:"retail_price"`           // Changed to float64 for NUMERIC
-	WholesalePrice      float64 `json:"wholesale_price"`        // Changed to float64 for NUMERIC
-	Quantity            float64 `json:"quantity"`               // new field
-	UnitMeasure         string  `json:"unit_measure"`           // DOUBLE PRECISION
-	LeastSubUnitMeasure float64 `json:"least_sub_unit_measure"` // text
+	ID                  int        `json:"id"` // pointer to differentiate between null and 0
+	ProductName         string     `json:"productName"`
+	ProductID           string     `json:"product_id"`
+	Barcode             string     `json:"barcode"`
+	DisplayTitle        string     `json:"displayTitle"`
+	VarianceDescription string     `json:"about_this_variance"`
+	ImageUrl            string     `json:"imageurl"`
+	VarianceTitle       string     `json:"variance"`
+	Brand               string     `json:"brand"`
+	Supplier            string     `json:"supplier"`
+	OriginalPrice       float64    `json:"original_price"`         // Changed to float64 for NUMERIC
+	RetailPrice         float64    `json:"retail_price"`           // Changed to float64 for NUMERIC
+	WholesalePrice      float64    `json:"wholesale_price"`        // Changed to float64 for NUMERIC
+	Quantity            float64    `json:"quantity"`               // new field
+	UnitMeasure         string     `json:"unit_measure"`           // DOUBLE PRECISION
+	LeastSubUnitMeasure float64    `json:"least_sub_unit_measure"` // text
+	CreatedAt           *time.Time `json:"created_at"`
+	LastModifiedAt      *time.Time `json:"last_modified_at"`
 }
 
 var memoryDb = make(map[string]string)
 var postgresDb *sql.DB
+
+func main() {
+
+	message := Hello("Models imported 🐳")
+	fmt.Println(message)
+
+	connStr := "postgresql://redrose_owner:npg_bxEKF6r9hvJu@ep-empty-dew-a13g9uj0-pooler.ap-southeast-1.aws.neon.tech/redrose?sslmode=require"
+	var err error
+	postgresDb, err = sql.Open("postgres", connStr)
+	if err != nil {
+		panic(err)
+	}
+	defer postgresDb.Close()
+	var version string
+	if err := postgresDb.QueryRow("select version()").Scan(&version); err != nil {
+		panic(err)
+	}
+	fmt.Printf("Connected to db version=%s\n", version)
+
+	r := setupRouter()
+
+	// Listen and Server in 0.0.0.0:8080
+	r.Run(":8080")
+
+}
 
 func setupRouter() *gin.Engine {
 	// Disable Console Color
@@ -125,22 +155,10 @@ func setupRouter() *gin.Engine {
 		}
 	})
 
-	// Add getTables endpoint
-	r.GET("/tables", getTables)
-
-	// Add getEnums endpoint
-	r.GET("/enums", getEnums)
-
-	// Add insert random product endpoint
-	// r.POST("/products/random", insertRandomProduct)
-
-	// Add group by department endpoint
-	r.GET("/products/by-department", groupByDepartment)
-
 	// Add getAllProducts endpoint
-	r.GET("/products", getAllProducts)
-
 	r.POST("/products/insert", insertProduct)
+
+	r.GET("/products", getAllProducts)
 
 	r.GET("/products/search", searchProducts)
 
@@ -148,11 +166,11 @@ func setupRouter() *gin.Engine {
 
 	r.PUT("/products/update", updateProduct)
 
-	r.GET("/last-product", getLastProduct)
-
-	r.GET("/variance/last", getLastVariance)
+	r.GET("/products/last-product", getLastProduct)
 
 	r.POST("/variance/upsert", insertOrUpdateVariance)
+
+	r.GET("/variance/last", getLastVariance)
 
 	r.GET("/variance/by-product/:id", getVariancesByProductId)
 
@@ -167,108 +185,6 @@ func setupRouter() *gin.Engine {
 //! ================= ✨ Menu tree related api handlers ✨ =============== //
 //? ============================================================================ //
 
-func getTables(c *gin.Context) {
-	rows, err := postgresDb.Query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		tables = append(tables, table)
-	}
-
-	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"tables": tables})
-}
-
-// Add this new handler function after getTables
-func groupByDepartment(c *gin.Context) {
-	rows, err := postgresDb.Query(`
-		SELECT department, COUNT(*) as count
-		FROM product
-		WHERE department IS NOT NULL
-		GROUP BY department
-	`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	type DepartmentGroup struct {
-		Department string `json:"department"`
-		Count      int    `json:"count"`
-	}
-
-	var results []DepartmentGroup
-	for rows.Next() {
-		var group DepartmentGroup
-		if err := rows.Scan(&group.Department, &group.Count); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		results = append(results, group)
-	}
-
-	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"departments": results})
-}
-
-func getEnums(c *gin.Context) {
-	rows, err := postgresDb.Query(`
-		SELECT n.nspname as enum_schema,  
-		       t.typname as enum_name,  
-		       e.enumlabel as enum_value
-		FROM pg_type t 
-		JOIN pg_enum e ON t.oid = e.enumtypid  
-		JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-	`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	type Enum struct {
-		EnumSchema string `json:"enum_schema"`
-		EnumName   string `json:"enum_name"`
-		EnumValue  string `json:"enum_value"`
-	}
-
-	var enums []Enum
-	for rows.Next() {
-		var enum Enum
-		if err := rows.Scan(&enum.EnumSchema, &enum.EnumName, &enum.EnumValue); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		enums = append(enums, enum)
-	}
-
-	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"enums": enums})
-}
-
 //? ========================================================================= //
 //! ================== 📦 PRODUCT RELATED API HANDLERS 📦 ================== //
 //? ========================================================================= //
@@ -281,7 +197,16 @@ func insertProduct(c *gin.Context) {
 	if err := c.ShouldBindJSON(&product); err != nil {
 		log.Println("Found error when parsing json", err)
 
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON input: " + err.Error()})
+		c.JSON(http.StatusBadRequest,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_JSON",
+					"message": "Invalid JSON input",
+					"details": err.Error(),
+				},
+			})
+
 		return
 	}
 
@@ -290,17 +215,29 @@ func insertProduct(c *gin.Context) {
 		product.ID = gofakeit.UUID()
 	}
 
+	now := time.Now()
+	product.CreatedAt = &now
+	product.LastModifiedAt = &now
+
 	// Insert into database
 	_, err := postgresDb.Exec(`
-		INSERT INTO products (id, title, description, tag_one, tag_two, imageurl, department, main_catogory, sub_catogory)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO products (id, title, description, tag_one, tag_two, imageurl, department, main_catogory, sub_catogory, created_at, last_modified_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, product.ID, product.Title, product.Description, product.TagOne, product.TagTwo, product.ImageURL,
-		product.Department, product.MainCategory, product.SubCategory)
+		product.Department, product.MainCategory, product.SubCategory, product.CreatedAt, product.LastModifiedAt)
 
 	if err != nil {
 		log.Println("Found error while performing db query", err)
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database insert failed: " + err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -323,9 +260,11 @@ func getLastProduct(c *gin.Context) {
 			COALESCE(imageurl, '') AS imageurl, 
 			COALESCE(department, 'mainBuilding') AS department, 
 			COALESCE(main_catogory, 'sand') AS main_catogory, 
-			COALESCE(sub_catogory, 'N/A') AS sub_catogory 
+			COALESCE(sub_catogory, 'N/A') AS sub_catogory,
+			created_at,
+			last_modified_at 
 		FROM products
-		ORDER BY id DESC
+		ORDER BY last_modified_at DESC
 		LIMIT 1
 	`
 
@@ -339,14 +278,30 @@ func getLastProduct(c *gin.Context) {
 	err := row.Scan(
 		&product.ID, &product.Title, &product.Description, &product.TagOne, &product.TagTwo,
 		&product.ImageURL, &product.Department,
-		&product.MainCategory, &product.SubCategory,
+		&product.MainCategory, &product.SubCategory, &product.CreatedAt, &product.LastModifiedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"message": "No product found"})
+			c.JSON(http.StatusBadRequest,
+				gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "NOT_ROWS",
+						"message": "No rows found",
+						"details": err.Error(),
+					},
+				})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -366,11 +321,21 @@ func getAllProducts(c *gin.Context) {
 			COALESCE(imageurl, '') AS imageurl, 
 			COALESCE(department, 'mainBuilding') AS department, 
 			COALESCE(main_catogory, 'sand') AS main_catogory, 
-			COALESCE(sub_catogory, 'N/A') AS sub_catogory 
+			COALESCE(sub_catogory, 'N/A') AS sub_catogory,
+			created_at,
+			last_modified_at 
 		FROM product
 	`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to fetch products",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 	defer rows.Close()
@@ -379,7 +344,7 @@ func getAllProducts(c *gin.Context) {
 
 	for rows.Next() {
 		var product Product
-		if err := rows.Scan(&product.ID, &product.Title, &product.Description, &product.TagOne, &product.TagTwo, &product.ImageURL, &product.Department, &product.MainCategory, &product.SubCategory); err != nil {
+		if err := rows.Scan(&product.ID, &product.Title, &product.Description, &product.TagOne, &product.TagTwo, &product.ImageURL, &product.Department, &product.MainCategory, &product.SubCategory, &product.CreatedAt, &product.LastModifiedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -387,7 +352,15 @@ func getAllProducts(c *gin.Context) {
 	}
 
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to process data returned from database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -428,7 +401,9 @@ func searchProducts(c *gin.Context) {
 			COALESCE(imageurl, '') AS imageurl, 
 			COALESCE(department, 'mainBuilding') AS department, 
 			COALESCE(main_catogory, 'sand') AS main_catogory, 
-			COALESCE(sub_catogory, 'N/A') AS sub_catogory 
+			COALESCE(sub_catogory, 'N/A') AS sub_catogory,
+			created_at,
+			last_modified_at 
 		FROM products
 		WHERE 1=1
 	`
@@ -512,12 +487,28 @@ func searchProducts(c *gin.Context) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// log.Println("Found error --> product by id | state:just called db", err)
-			c.JSON(http.StatusNotFound, gin.H{"message": "Product not found"})
+			c.JSON(http.StatusBadRequest,
+				gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "NOT_ROWS",
+						"message": "No rows found",
+						"details": err.Error(),
+					},
+				})
 			return
 		}
 		log.Printf("SQL: %s | ARGS: %#v", query, args)
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 	defer rows.Close()
@@ -527,7 +518,7 @@ func searchProducts(c *gin.Context) {
 		var p Product
 		if err := rows.Scan(
 			&p.ID, &p.Title, &p.Description, &p.TagOne, &p.TagTwo,
-			&p.ImageURL, &p.Department, &p.MainCategory, &p.SubCategory); err != nil {
+			&p.ImageURL, &p.Department, &p.MainCategory, &p.SubCategory, &p.CreatedAt, &p.LastModifiedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -552,7 +543,9 @@ func getProductByID(c *gin.Context) {
 			COALESCE(imageurl, '') AS imageurl, 
 			COALESCE(department, 'mainBuilding') AS department, 
 			COALESCE(main_catogory, 'sand') AS main_catogory, 
-			COALESCE(sub_catogory, 'N/A') AS sub_catogory 
+			COALESCE(sub_catogory, 'N/A') AS sub_catogory,
+			created_at,
+			last_modified_at 
 		FROM products 
 		WHERE id = $1
 	`
@@ -564,16 +557,32 @@ func getProductByID(c *gin.Context) {
 	err := postgresDb.QueryRow(query, id).Scan(
 		&product.ID, &product.Title, &product.Description,
 		&product.TagOne, &product.TagTwo, &product.ImageURL,
-		&product.Department, &product.MainCategory, &product.SubCategory,
+		&product.Department, &product.MainCategory, &product.SubCategory, &product.CreatedAt, &product.LastModifiedAt,
 	)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Println("Found error --> product by id | state:just called db", err)
-			c.JSON(http.StatusNotFound, gin.H{"message": "Product not found"})
+			c.JSON(http.StatusBadRequest,
+				gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "NOT_ROWS",
+						"message": "No rows found",
+						"details": err.Error(),
+					},
+				})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -586,9 +595,20 @@ func updateProduct(c *gin.Context) {
 	var product Product
 
 	if err := c.ShouldBindJSON(&product); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON: " + err.Error()})
+		c.JSON(http.StatusBadRequest,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_JSON",
+					"message": "Invalid JSON input",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
+
+	now := time.Now()
+	product.LastModifiedAt = &now
 
 	query := `
 		UPDATE products
@@ -600,26 +620,43 @@ func updateProduct(c *gin.Context) {
 			imageurl = $5,
 			department = $6,
 			main_catogory = $7,
-			sub_catogory = $8
-		WHERE id = $9
+			sub_catogory = $8,
+			last_modified_at = $9
+		WHERE id = $10
 	`
 
 	result, err := postgresDb.Exec(query,
 		product.Title, product.Description, product.TagOne,
 		product.TagTwo, product.ImageURL, product.Department,
-		product.MainCategory, product.SubCategory, product.ID,
+		product.MainCategory, product.SubCategory, product.LastModifiedAt, product.ID,
 	)
 
 	if err != nil {
 
 		log.Println("Found errr when updating product(category) | state:just called db", err, product.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed: " + err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to update product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"message": "No product updated (invalid ID?)"})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "No rows were affected by update",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -638,19 +675,32 @@ func insertOrUpdateVariance(c *gin.Context) {
 	if err := c.ShouldBindJSON(&v); err != nil {
 		log.Println("📢 upserting variances to json parsing got error", err)
 
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON input: " + err.Error()})
+		c.JSON(http.StatusBadRequest,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_JSON",
+					"message": "Invalid JSON input",
+					"details": err.Error(),
+				},
+			})
+
 		return
 	}
+
+	now := time.Now()
+	v.CreatedAt = &now
+	v.LastModifiedAt = &now
 
 	query := `
 		INSERT INTO products_variances (
 			images, original_price, retail_price, wholesale_price,
 			about_this_variance, variance_display_title, product, variance, brand_name,
-			product_id, supplier, quantity, unit_measure, least_sub_unit_measure, barcode
+			product_id, supplier, quantity, unit_measure, least_sub_unit_measure, barcode, created_at, last_modified_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8, $9,
-			$10, $11, $12, $13, $14, $15
+			$10, $11, $12, $13, $14, $15, $16, $17
 		)
 		ON CONFLICT (product, variance, brand_name)
 		DO UPDATE SET 
@@ -664,10 +714,11 @@ func insertOrUpdateVariance(c *gin.Context) {
 			unit_measure = EXCLUDED.unit_measure,
 			least_sub_unit_measure = EXCLUDED.least_sub_unit_measure,
 			images = EXCLUDED.images,
-			barcode = EXCLUDED.barcode
+			barcode = EXCLUDED.barcode,
+			last_modified_at = EXCLUDED.last_modified_at
 		RETURNING id, images, original_price, retail_price, wholesale_price,
 		          about_this_variance, variance_display_title, product, variance, brand_name,
-		          product_id, supplier, quantity, unit_measure, least_sub_unit_measure, barcode
+		          product_id, supplier, quantity, unit_measure, least_sub_unit_measure, barcode, created_at, last_modified_at
 	`
 
 	// JSON encode the image URL
@@ -680,16 +731,25 @@ func insertOrUpdateVariance(c *gin.Context) {
 		query,
 		imageJson, v.OriginalPrice, v.RetailPrice, v.WholesalePrice,
 		v.VarianceDescription, v.DisplayTitle, v.ProductName, v.VarianceTitle, v.Brand,
-		v.ProductID, v.Supplier, v.Quantity, v.UnitMeasure, v.LeastSubUnitMeasure, v.Barcode,
+		v.ProductID, v.Supplier, v.Quantity, v.UnitMeasure, v.LeastSubUnitMeasure, v.Barcode, v.CreatedAt, v.LastModifiedAt,
 	).Scan(
 		&result.ID, &images, &result.OriginalPrice, &result.RetailPrice, &result.WholesalePrice,
 		&result.VarianceDescription, &result.DisplayTitle, &result.ProductName, &result.VarianceTitle,
-		&result.Brand, &result.ProductID, &result.Supplier, &result.Quantity, &result.UnitMeasure, &result.LeastSubUnitMeasure, &result.Barcode,
+		&result.Brand, &result.ProductID, &result.Supplier, &result.Quantity, &result.UnitMeasure,
+		&result.LeastSubUnitMeasure, &result.Barcode, &result.CreatedAt, &result.LastModifiedAt,
 	)
 
 	if err != nil {
 		log.Println("📢 upserting variances to db got error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert variance: " + err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -717,9 +777,11 @@ func getLastVariance(c *gin.Context) {
 			COALESCE(quantity, 0) AS quantity,
 			COALESCE(unit_measure, '') AS unit_measure,
 			COALESCE(least_sub_unit_measure, 0) AS least_sub_unit_measure,
-			COALESCE(barcode, '') AS barcode
+			COALESCE(barcode, '') AS barcode,
+			created_at,
+			last_modified_at
 		FROM products_variances
-		ORDER BY id DESC
+		ORDER BY last_modified_at DESC
 		LIMIT 1
 	`
 
@@ -732,17 +794,33 @@ func getLastVariance(c *gin.Context) {
 		&v.Brand, &v.Supplier, &v.OriginalPrice,
 		&v.RetailPrice, &v.WholesalePrice, &v.Quantity,
 		&v.UnitMeasure,
-		&v.LeastSubUnitMeasure, &v.Barcode,
+		&v.LeastSubUnitMeasure, &v.Barcode, &v.CreatedAt, &v.LastModifiedAt,
 	)
 
 	if err != nil {
 		log.Println("📢 Error from fetch last variance query: ", err)
 
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"message": "No variance found"})
+			c.JSON(http.StatusBadRequest,
+				gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "NOT_ROWS",
+						"message": "No rows found",
+						"details": err.Error(),
+					},
+				})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -773,7 +851,9 @@ func getVariancesByProductId(c *gin.Context) {
 			COALESCE(quantity, 0) AS quantity,
 			COALESCE(unit_measure, '') AS unit_measure,
 			COALESCE(least_sub_unit_measure, 0) AS least_sub_unit_measure,
-			COALESCE(barcode, '') AS barcode
+			COALESCE(barcode, '') AS barcode,
+			created_at,
+			last_modified_at 
 		FROM products_variances
 		WHERE product_id = $1
 		ORDER BY id DESC
@@ -783,7 +863,15 @@ func getVariancesByProductId(c *gin.Context) {
 	rows, err := postgresDb.Query(query, productID)
 	if err != nil {
 		log.Println("📢 Error querying variances by product ID:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query product variances"})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to insert product into database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 	defer rows.Close()
@@ -798,6 +886,7 @@ func getVariancesByProductId(c *gin.Context) {
 			&v.Brand, &v.Supplier, &v.OriginalPrice,
 			&v.RetailPrice, &v.WholesalePrice,
 			&v.Quantity, &v.UnitMeasure, &v.LeastSubUnitMeasure, &v.Barcode,
+			&v.CreatedAt, &v.LastModifiedAt,
 		); err != nil {
 			log.Println("📢 Error scanning row into Variance model:", err)
 			continue
@@ -807,7 +896,15 @@ func getVariancesByProductId(c *gin.Context) {
 
 	if err = rows.Err(); err != nil {
 		log.Println("📢 Error after iterating variances rows:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error processing query results"})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "DATABASE_ERROR",
+					"message": "Failed to process data returned from database",
+					"details": err.Error(),
+				},
+			})
 		return
 	}
 
@@ -955,28 +1052,3 @@ func getBrandFilters(c *gin.Context) {
 //! ============================================================================ //
 //? ========================== 🫰 THE MAIN 🫰 ================================= //
 //! ============================================================================ //
-
-func main() {
-
-	message := Hello("Models imported 🐳")
-	fmt.Println(message)
-
-	connStr := "postgresql://redrose_owner:npg_bxEKF6r9hvJu@ep-empty-dew-a13g9uj0-pooler.ap-southeast-1.aws.neon.tech/redrose?sslmode=require"
-	var err error
-	postgresDb, err = sql.Open("postgres", connStr)
-	if err != nil {
-		panic(err)
-	}
-	defer postgresDb.Close()
-	var version string
-	if err := postgresDb.QueryRow("select version()").Scan(&version); err != nil {
-		panic(err)
-	}
-	fmt.Printf("Connected to db version=%s\n", version)
-
-	r := setupRouter()
-
-	// Listen and Server in 0.0.0.0:8080
-	r.Run(":8080")
-
-}
